@@ -33,7 +33,7 @@ class GroupMessage(models.Model):
                               related_name='chat_messages',
                               on_delete=models.CASCADE)
     author = models.ForeignKey(User, on_delete=models.CASCADE)
-    body = models.CharField(max_length=300, blank=True, null=True)
+    body = models.CharField(max_length=4100, blank=True, null=True)
     file = models.FileField(upload_to='files/', blank=True, null=True)
     created = models.DateTimeField(auto_now_add=True)
 

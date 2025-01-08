@@ -3,7 +3,10 @@ from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
 from asgiref.sync import async_to_sync
 from .models import ChatGroup, GroupMessage
+from django.contrib.auth.models import User
 import json
+from openai import OpenAI
+from a_core.settings import TOGETHER_API_KEY
 
 
 class ChatroomConsumer(WebsocketConsumer):
@@ -11,6 +14,10 @@ class ChatroomConsumer(WebsocketConsumer):
         self.user = self.scope['user']
         self.chatroom_name = self.scope['url_route']['kwargs']['chatroom_name']
         self.chatroom = get_object_or_404(ChatGroup, group_name=self.chatroom_name)
+        self.assistant = OpenAI(
+            api_key= TOGETHER_API_KEY,
+            base_url="https://api.together.xyz/v1",
+        )
         
         async_to_sync(self.channel_layer.group_add)(
             self.chatroom_name,
@@ -41,13 +48,27 @@ class ChatroomConsumer(WebsocketConsumer):
             self.chatroom_name, event
         )
 
+        if body.lower().startswith("@ai"):
+            assistant_message_body = self.get_assistant_response(body[3:])
+            assistant_message = GroupMessage.objects.create(
+                body=assistant_message_body,
+                author=User.objects.get(username="aiassistant"),
+                group=self.chatroom
+            )
+            assistant_event = {
+            "type": "message_handler",
+            "message_id": assistant_message.id,
+            }
+            async_to_sync(self.channel_layer.group_send)(
+                self.chatroom_name, assistant_event
+            )
+
     def message_handler(self, event):
         message_id = event["message_id"]
         message = GroupMessage.objects.get(id=message_id)
         context = {
             "message": message,
             "user": self.user,
-
         }
         html = render_to_string("a_rtchat/partials/chat_message_p.html",
                                 context=context)
@@ -85,3 +106,10 @@ class ChatroomConsumer(WebsocketConsumer):
         html = render_to_string("a_rtchat/partials/online_count.html", 
                                 context)
         self.send(text_data=html)
+
+    def get_assistant_response(self, message): 
+        response = self.assistant.chat.completions.create(
+            model="meta-llama/Llama-3.2-3B-Instruct-Turbo",
+            messages=[{"role": "user", "content": message}]
+        )
+        return response.choices[0].message.content
